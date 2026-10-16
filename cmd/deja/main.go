@@ -375,6 +375,9 @@ var commands = map[string]command{
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == framedFlag {
+		return runFramed(args[1:])
+	}
 	dir := index.DefaultDir()
 	// Before anything reads or writes: every path deja writes hangs off the
 	// home directory, and it answers "" when there is none, so
@@ -584,6 +587,12 @@ func cmdIndex(dir string, rest []string) error {
 		fmt.Fprintln(os.Stderr, "deja: some notes were grouped in another time zone — regrouping them")
 		fresh, force = false, true
 	}
+	// aider headers carry no zone and are read in this one; after a zone
+	// change the warmup this command runs must reread them (#5053).
+	if fresh && !force && index.AiderZoneDrift(dir) {
+		fmt.Fprintln(os.Stderr, "deja: aider sessions were read in another time zone — reading them again")
+		fresh, force = false, true
+	}
 	if fresh && !force {
 		stopProgress()
 		// The warmup child runs this command, so returning before the sentinel
@@ -750,7 +759,7 @@ func cmdHookContext(dir string, rest []string) error {
 		// A plugin reply can land in a group chat (OpenClaw's /deja), so the
 		// notes here never quote the person's own questions.
 		case "--notes", "-notes":
-			if notes := humanNotesFor(dir, false); notes != "" {
+			if notes := safeNote(humanNotesFor(dir, false)); notes != "" {
 				fmt.Fprintln(os.Stdout, notes)
 			}
 			return nil
@@ -856,6 +865,9 @@ func cmdShow(dir string, rest []string, sourceInstance string) error {
 		fmt.Fprintln(os.Stderr, note)
 	}
 	printSpawnEdges(os.Stderr, dir, s)
+	if s.Harness == "claude" && sources.IsPromptLog(s.Path) {
+		fmt.Fprintln(os.Stderr, "deja: only the prompts are left — Claude Code deleted the transcript, and history.jsonl kept what was typed")
+	}
 	// A pasted log is one message, and the index keeps the head of it. The
 	// window note above says when messages were left out; nothing said when a
 	// message was, so a reader searching a log for the line that explains a
